@@ -20,18 +20,48 @@ This tool reads an Excel file with newsletter content and generates a profession
 
 - Python 3.x
 - openpyxl library
+- streamlit (for web interface)
 
 ## Installation
 
+Install all dependencies:
 ```bash
-pip install openpyxl
+pip install -r requirements.txt
+```
+
+Or install individually:
+```bash
+pip install openpyxl streamlit
 ```
 
 ## Usage
 
-### Graphical User Interface (Recommended)
+### 🌐 Web Interface (Streamlit) - Recommended
 
-Launch the GUI application:
+**Run locally:**
+```bash
+streamlit run streamlit_app.py
+```
+
+**Host on Streamlit Cloud:**
+1. Push your code to GitHub
+2. Go to [share.streamlit.io](https://share.streamlit.io)
+3. Sign in with GitHub
+4. Click "New app"
+5. Select your repository and set main file to `streamlit_app.py`
+6. Click "Deploy"
+
+The web interface provides:
+- Drag-and-drop Excel file upload
+- Month selection dropdown
+- Email configuration sidebar
+- Real-time preview of Excel data
+- One-click newsletter generation
+- Direct EML file download
+
+### 🖥️ Desktop GUI (Tkinter)
+
+Launch the desktop GUI application:
 ```bash
 python newsletter_gui.py
 ```
@@ -72,6 +102,18 @@ The Excel file should contain the following columns:
 - **Title**: Title/heading for the content
 - **Creator**: Author/creator name (optional)
 - **Image**: Path to image file (optional, for Product type)
+
+## Deployment Options
+
+### Streamlit Cloud (Free)
+- **URL**: [share.streamlit.io](https://share.streamlit.io)
+- **Pros**: Free, easy setup, automatic HTTPS, no server management
+- **Limitations**: Public apps are free, private apps require paid plan
+
+### Other Hosting Options
+- **Heroku**: Use Procfile with `web: streamlit run streamlit_app.py --server.port=$PORT`
+- **AWS/Azure/GCP**: Deploy as containerized app
+- **Local Network**: Run `streamlit run streamlit_app.py --server.address=0.0.0.0`
 
 ## License
 
