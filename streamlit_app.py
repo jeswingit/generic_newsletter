@@ -23,6 +23,9 @@ from generate_newsletter import (
     DEFAULT_MONTH,
 )
 
+# Import template generator
+from template_generator import create_excel_template
+
 # Page configuration
 st.set_page_config(
     page_title="ADIA EMEA Newsletter Generator",
@@ -53,6 +56,13 @@ st.markdown("""
         color: #155724;
         margin: 1rem 0;
     }
+    .preview-container {
+        border: 2px solid #dddddd;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        background-color: #ffffff;
+        margin: 1rem 0;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -60,6 +70,25 @@ def main():
     # Header
     st.markdown('<div class="main-header">📧 ADIA EMEA Newsletter Generator</div>', unsafe_allow_html=True)
     st.markdown('<div class="sub-header">Generate professional HTML email newsletters from Excel data</div>', unsafe_allow_html=True)
+    
+    # Download Template Button (at the top)
+    col_template, _ = st.columns([1, 3])
+    with col_template:
+        if st.button("📥 Download Excel Template", use_container_width=True, help="Download a sample Excel template with example data"):
+            try:
+                template_bytes = create_excel_template()
+                st.download_button(
+                    label="⬇️ Click to Download Template",
+                    data=template_bytes.getvalue(),
+                    file_name="newsletter_template.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+                st.success("✅ Template ready! Click the download button above.")
+            except Exception as e:
+                st.error(f"Error generating template: {str(e)}")
+    
+    st.markdown("---")
     
     # Sidebar for configuration
     with st.sidebar:
@@ -154,14 +183,28 @@ def main():
                     except Exception as e:
                         st.error(f"Error reading Excel file: {str(e)}")
             
-            # Generate button
+            # Generate and Preview buttons
             st.markdown("---")
-            generate_button = st.button(
-                "🚀 Generate Newsletter",
-                type="primary",
-                use_container_width=True,
-                help="Generate the newsletter EML file"
-            )
+            col_gen, col_prev = st.columns(2)
+            
+            with col_gen:
+                generate_button = st.button(
+                    "🚀 Generate Newsletter",
+                    type="primary",
+                    use_container_width=True,
+                    help="Generate the newsletter EML file"
+                )
+            
+            with col_prev:
+                preview_button = st.button(
+                    "👁️ Preview Email",
+                    use_container_width=True,
+                    help="Preview how the newsletter will look"
+                )
+            
+            if preview_button:
+                preview_email(uploaded_file, selected_month, from_email, to_email, 
+                            custom_subject if use_custom_subject else None)
             
             if generate_button:
                 generate_newsletter(
@@ -178,19 +221,22 @@ def main():
         st.markdown("""
         ### How to Use:
         
-        1. **Upload Excel File**
+        1. **Download Template** (optional)
+           - Get a sample Excel file with examples
+        
+        2. **Upload Excel File**
            - File must have columns: Type, Data, Title, Creator, Image
         
-        2. **Select Month**
+        3. **Select Month**
            - Choose the month for the newsletter
         
-        3. **Configure Email**
+        4. **Configure Email**
            - Set From/To addresses
            - Optionally customize subject
         
-        4. **Generate**
-           - Click "Generate Newsletter"
-           - Download the EML file
+        5. **Preview or Generate**
+           - Preview to see how it looks
+           - Generate to download EML file
         
         ### Content Types:
         - **Month News**: Bullet list items
@@ -200,8 +246,8 @@ def main():
         
         ### Tips:
         - Images should be relative paths from Excel file location
-        - Preview data before generating
-        - Check the status messages for any issues
+        - Preview before generating
+        - Use the template for correct format
         """)
         
         st.markdown("---")
@@ -302,14 +348,29 @@ def generate_newsletter(uploaded_file, month, from_email, to_email, custom_subje
         st.success("✅ Newsletter generated successfully!")
         st.markdown(f'<div class="success-box"><strong>Subject:</strong> {subject}</div>', unsafe_allow_html=True)
         
-        st.download_button(
-            label="📥 Download EML File",
-            data=eml_bytes,
-            file_name=output_filename,
-            mime="message/rfc822",
-            type="primary",
-            use_container_width=True
-        )
+        # Offer both EML and HTML download
+        col_dl_eml, col_dl_html = st.columns(2)
+        
+        with col_dl_eml:
+            st.download_button(
+                label="📥 Download EML File",
+                data=eml_bytes,
+                file_name=output_filename,
+                mime="message/rfc822",
+                type="primary",
+                use_container_width=True,
+                key="download_eml"
+            )
+        
+        with col_dl_html:
+            st.download_button(
+                label="📥 Download HTML File",
+                data=html,
+                file_name=output_filename.replace('.eml', '.html'),
+                mime="text/html",
+                use_container_width=True,
+                key="download_html"
+            )
         
         status_text.empty()
         st.session_state.status = f"✅ Newsletter generated: {output_filename}"
@@ -320,6 +381,72 @@ def generate_newsletter(uploaded_file, month, from_email, to_email, custom_subje
         st.error(f"❌ Error generating newsletter: {str(e)}")
         st.exception(e)
         st.session_state.status = f"❌ Error: {str(e)}"
+
+
+def preview_email(uploaded_file, month, from_email, to_email, custom_subject):
+    """Preview the newsletter HTML before generating."""
+    try:
+        with st.spinner("Generating preview..."):
+            # Save uploaded file temporarily
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+                tmp_file.write(uploaded_file.getvalue())
+                tmp_path = Path(tmp_file.name)
+            
+            # Read Excel data
+            grouped = read_excel_rows(tmp_path)
+            
+            # Prepare image attachments
+            image_cids: dict[str, str] = {}
+            image_parts: dict[str, object] = {}
+            
+            product_rows = grouped.get("Product", [])
+            for row in product_rows:
+                if row.get("image") and row["image"] not in image_cids:
+                    img_part, cid = _load_image_part(row["image"], tmp_path.parent)
+                    if img_part is not None:
+                        image_cids[row["image"]] = cid
+                        image_parts[row["image"]] = img_part
+            
+            # Build HTML content
+            html = build_html_email(grouped, month, EMAIL_CONFIG, image_cids)
+            
+            # Determine subject
+            if custom_subject and custom_subject.strip():
+                subject = custom_subject.strip()
+            else:
+                current_year = datetime.now().year
+                subject = EMAIL_CONFIG["subject"].format(month=month, year=current_year)
+            
+            # Clean up temp file
+            os.unlink(tmp_path)
+            
+            # Display preview
+            st.markdown("---")
+            st.subheader("📧 Email Preview")
+            st.info(f"**Subject:** {subject}")
+            st.info(f"**From:** {from_email} | **To:** {to_email}")
+            
+            # Display HTML preview in an iframe-like container
+            st.markdown('<div class="preview-container">', unsafe_allow_html=True)
+            st.components.v1.html(html, height=800, scrolling=True)
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+            # Store HTML in session state for potential download
+            st.session_state.preview_html = html
+            st.session_state.preview_subject = subject
+            
+            # Option to download HTML version
+            st.download_button(
+                label="📥 Download HTML Version",
+                data=html,
+                file_name="newsletter_preview.html",
+                mime="text/html",
+                use_container_width=True
+            )
+            
+    except Exception as e:
+        st.error(f"❌ Error generating preview: {str(e)}")
+        st.exception(e)
 
 
 if __name__ == "__main__":
