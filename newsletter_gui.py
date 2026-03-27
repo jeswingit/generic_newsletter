@@ -2,7 +2,7 @@
 """
 newsletter_gui.py
 
-Graphical user interface for the newsletter generator created in Claude.
+Graphical user interface for the newsletter generator created in Claude 2.
 Provides a simple GUI to upload Excel files and configure newsletter parameters.
 """
 
