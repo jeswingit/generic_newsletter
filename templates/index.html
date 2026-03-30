@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aon Newsletter Builder</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <!-- SortableJS for drag-and-drop -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════ TOP BAR -->
+<header class="topbar">
+  <div class="topbar-brand">
+    <span class="topbar-logo">AON</span>
+    <span class="topbar-title">Newsletter Builder</span>
+  </div>
+  <div class="topbar-actions">
+    <button class="btn btn-ghost" id="btn-import-excel" title="Import Excel data">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 14v3h14v-3M10 3v10M6 9l4 4 4-4"/></svg>
+      Import Excel
+    </button>
+    <a class="btn btn-ghost" href="/api/template" download title="Download Excel template">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h8l4 4v8H4V4z"/><path d="M12 4v4h4"/></svg>
+      Template
+    </a>
+    <button class="btn btn-ghost" id="btn-preview" title="Preview newsletter">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="10" cy="10" rx="7" ry="4.5"/><circle cx="10" cy="10" r="2"/></svg>
+      Preview
+    </button>
+    <div class="dropdown">
+      <button class="btn btn-primary" id="btn-export" title="Export newsletter">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 14v3h14v-3M10 13V3M6 7l4-4 4 4"/></svg>
+        Export
+        <svg class="chevron" viewBox="0 0 10 6" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M1 1l4 4 4-4"/></svg>
+      </button>
+      <div class="dropdown-menu" id="export-menu">
+        <button class="dropdown-item" data-format="eml">Export as EML</button>
+        <button class="dropdown-item" data-format="html">Export as HTML</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ═══════════════════════════════════════════════════════════ MAIN LAYOUT -->
+<div class="workspace">
+
+  <!-- ──────────────────────────────────────────── LEFT PANEL -->
+  <aside class="panel panel-left" id="panel-left">
+
+    <div class="panel-section">
+      <div class="panel-section-title">Add Section</div>
+      <ul class="section-library" id="section-library">
+        {% for s in section_types %}
+        <li class="section-type-btn" data-type="{{ s.type }}">
+          <span class="section-type-icon">{{ s.icon }}</span>
+          {{ s.label }}
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+
+    <div class="panel-divider"></div>
+
+    <div class="panel-section">
+      <div class="panel-section-title">Newsletter Info</div>
+      <label class="field-label">Name
+        <input type="text" class="field-input" id="meta-name" placeholder="e.g. Good to Know" />
+      </label>
+      <label class="field-label">Subject
+        <input type="text" class="field-input" id="meta-subject" placeholder="Email subject line" />
+      </label>
+      <label class="field-label">From
+        <input type="email" class="field-input" id="meta-from" placeholder="sender@aon.com" />
+      </label>
+      <label class="field-label">To
+        <input type="email" class="field-input" id="meta-to" placeholder="recipient@aon.com" />
+      </label>
+    </div>
+
+    <div class="panel-divider"></div>
+
+    <div class="panel-section">
+      <div class="panel-section-title">Theme</div>
+      <label class="field-label">Background
+        <div class="color-field">
+          <div class="color-swatch" id="swatch-bg"></div>
+          <input type="color" id="theme-bg" value="#F5F5F5" />
+          <span class="color-hex" id="hex-bg">#F5F5F5</span>
+        </div>
+      </label>
+      <label class="field-label">Table Width (px)
+        <input type="number" class="field-input" id="theme-width" value="700" min="200" max="1400" />
+      </label>
+    </div>
+
+  </aside>
+
+  <!-- ──────────────────────────────────────────── CANVAS -->
+  <main class="canvas-area" id="canvas-area">
+    <div class="canvas-inner">
+      <ul class="canvas-list" id="canvas-list">
+        <!-- Section cards injected by app.js -->
+      </ul>
+      <div class="canvas-empty" id="canvas-empty">
+        <svg viewBox="0 0 64 64" fill="none" stroke="#ccc" stroke-width="2"><rect x="8" y="8" width="48" height="48" rx="4"/><line x1="8" y1="24" x2="56" y2="24"/><line x1="8" y1="40" x2="56" y2="40"/></svg>
+        <p>Add sections from the left panel<br/>to start building your newsletter.</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- ──────────────────────────────────────────── RIGHT PANEL -->
+  <aside class="panel panel-right" id="panel-right">
+    <div class="props-placeholder" id="props-placeholder">
+      <svg viewBox="0 0 48 48" fill="none" stroke="#ccc" stroke-width="1.5"><circle cx="24" cy="20" r="6"/><path d="M12 40c0-6.627 5.373-12 12-12s12 5.373 12 12"/></svg>
+      <p>Select a section<br/>to edit its properties</p>
+    </div>
+    <div class="props-form" id="props-form" hidden>
+      <!-- Populated by renderPropertiesPanel() -->
+    </div>
+  </aside>
+
+</div>
+
+<!-- ══════════════════════════════════════════════════ PREVIEW MODAL -->
+<div class="modal-overlay" id="preview-modal" hidden>
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="preview-title">Newsletter Preview</span>
+      <button class="modal-close" id="preview-close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <iframe id="preview-frame" sandbox="allow-same-origin" title="Newsletter preview"></iframe>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden file inputs -->
+<input type="file" id="import-excel-input" accept=".xlsx,.xls" hidden />
+<input type="file" id="image-upload-input" accept="image/*" hidden />
+
+<!-- Toast notification -->
+<div class="toast" id="toast" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

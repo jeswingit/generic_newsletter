@@ -12,6 +12,7 @@ ENV/
 # IDE
 .vscode/
 .idea/
+.claude/settings.local.json
 *.swp
 *.swo
 *~
@@ -23,6 +24,9 @@ Thumbs.db
 # Excel lock files
 .~lock.*
 ~$*
+
+# Uploaded images (temp storage)
+static/uploads/
 
 # Output files (optional - uncomment if you don't want to track generated files)
 # *.eml
