@@ -3,13 +3,14 @@
 generate_newsletter.py
 
 Reads an Excel file (columns: Type, Data, Title, Creator, Image) and generates
-a newsletter EML file by building the email template dynamically.
+a newsletter EML file. HTML is produced with newsletter_renderer.render_newsletter()
+(same stack as the Flask builder).
 
 Section mapping (Type column values):
-  Month News    → "What's going on in [Month]" bullet list
-  Save the Date → "Save the Date!" bullet list
-  Product       → Product spotlight cards in the General Information body
-  General       → Informational subheading blocks at the bottom of the email
+  Month News    → bullet list ("What's Going On")
+  Save the Date → event list
+  Product       → product cards (when block order includes General Information)
+  General       → text blocks
 
 Usage:
     python generate_newsletter.py
@@ -18,6 +19,7 @@ Usage:
 
 import argparse
 import base64
+import copy
 import html as html_module
 import sys
 import uuid
@@ -27,6 +29,8 @@ from email.mime.text import MIMEText
 from pathlib import Path
 
 import openpyxl
+
+from newsletter_renderer import render_newsletter
 
 # ---------------------------------------------------------------------------
 # Defaults and Configuration
@@ -110,6 +114,177 @@ def read_excel_rows(xlsx_path: Path) -> dict[str, list[dict]]:
         })
 
     return grouped
+
+
+# ---------------------------------------------------------------------------
+# Excel → newsletter_renderer config (same shape as Flask / static builder)
+# ---------------------------------------------------------------------------
+
+_DEFAULT_EXCEL_LAYOUT = [
+    "Month News",
+    "Save the Date",
+    "General Information",
+    "General",
+]
+
+
+def excel_to_newsletter_config(
+    grouped: dict[str, list[dict]],
+    *,
+    email_config: dict | None = None,
+    ordered_blocks: list[str] | None = None,
+    block_bg_colors: dict[str, str] | None = None,
+    meta: dict | None = None,
+    bullet_heading: str | None = None,
+) -> dict:
+    """
+    Build a newsletter config dict for newsletter_renderer.render_newsletter().
+
+    ``ordered_blocks`` uses Streamlit/legacy block ids: Month News, Save the Date,
+    General Information (product rows), General (text blocks). Header and footer
+    are always included in the same style as the Flask builder.
+    """
+    cfg = email_config or EMAIL_CONFIG
+    colors = cfg["colors"]
+    fonts = cfg["fonts"]
+    sizes = cfg["sizes"]
+    meta = dict(meta) if meta else {}
+    org = meta.get("orgName", "Aon")
+    tagline = meta.get("tagline", "Newsletter")
+    block_bg = dict(block_bg_colors) if block_bg_colors else {}
+
+    tw = sizes.get("table_width", "700")
+    try:
+        table_width = int(str(tw).replace("px", ""))
+    except ValueError:
+        table_width = 700
+
+    theme = {
+        "primaryColor": colors.get("red_accent", "#E31837"),
+        "backgroundColor": colors.get("background", "#F5F5F5"),
+        "fontFamily": fonts.get("family", "Arial,Helvetica,sans-serif"),
+        "tableWidth": table_width,
+    }
+
+    sections: list[dict] = []
+    sections.append({
+        "id": str(uuid.uuid4()),
+        "type": "header",
+        "props": {
+            "orgName": org,
+            "tagline": tagline,
+            "backgroundColor": "#E31837",
+            "textColor": "#ffffff",
+        },
+    })
+
+    layout = list(ordered_blocks) if ordered_blocks else list(_DEFAULT_EXCEL_LAYOUT)
+    bullet_title = bullet_heading if bullet_heading is not None else "What's Going On"
+    bullet_color = theme["primaryColor"]
+
+    for block_id in layout:
+        if block_id == "Month News":
+            month_rows = grouped.get("Month News", [])
+            items = [r.get("data", "") for r in month_rows if str(r.get("data", "")).strip()]
+            if not items:
+                continue
+            sections.append({
+                "id": str(uuid.uuid4()),
+                "type": "bullet_list",
+                "props": {
+                    "heading": bullet_title,
+                    "items": items,
+                    "bulletColor": bullet_color,
+                    "backgroundColor": block_bg.get("Month News", colors.get("white", "#ffffff")),
+                },
+            })
+
+        elif block_id == "Save the Date":
+            std_rows = grouped.get("Save the Date", [])
+            items = [r.get("data", "") for r in std_rows if str(r.get("data", "")).strip()]
+            if not items:
+                continue
+            sections.append({
+                "id": str(uuid.uuid4()),
+                "type": "event_list",
+                "props": {
+                    "heading": "Save the Date!",
+                    "items": items,
+                    "backgroundColor": block_bg.get(
+                        "Save the Date",
+                        colors.get("save_date_bg", "#EEF6F7"),
+                    ),
+                },
+            })
+
+        elif block_id == "General Information":
+            prod_bg = block_bg.get("General Information", colors.get("white", "#ffffff"))
+            for row in grouped.get("Product", []):
+                img = row.get("image") or ""
+                sections.append({
+                    "id": str(uuid.uuid4()),
+                    "type": "product_card",
+                    "props": {
+                        "title": row.get("title", ""),
+                        "body": row.get("data", ""),
+                        "creator": row.get("creator", ""),
+                        "imageUrl": str(img).strip() if img else "",
+                        "backgroundColor": prod_bg,
+                    },
+                })
+
+        elif block_id == "General":
+            gen_bg = block_bg.get("General", colors.get("white", "#ffffff"))
+            for row in grouped.get("General", []):
+                sections.append({
+                    "id": str(uuid.uuid4()),
+                    "type": "text_block",
+                    "props": {
+                        "heading": row.get("title", ""),
+                        "body": row.get("data", ""),
+                        "backgroundColor": gen_bg,
+                    },
+                })
+
+    sections.append({
+        "id": str(uuid.uuid4()),
+        "type": "footer",
+        "props": {
+            "orgName": org,
+            "year": str(datetime.now().year),
+            "backgroundColor": "#1A1A1A",
+            "textColor": "#aaaaaa",
+        },
+    })
+
+    return {"meta": meta, "theme": theme, "sections": sections}
+
+
+def embed_local_images_in_config(config: dict, base_dir: Path) -> dict:
+    """Return a deep copy with local imageUrl/logoUrl paths replaced by data URIs."""
+    _mime = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+        ".webp": "image/webp",
+    }
+    out = copy.deepcopy(config)
+    for section in out.get("sections", []):
+        props = section.get("props", {})
+        for key in ("imageUrl", "logoUrl"):
+            url = props.get(key, "")
+            if not url or str(url).startswith(("data:", "http://", "https://", "/")):
+                continue
+            path = Path(url)
+            if not path.is_absolute():
+                path = base_dir / url
+            if path.is_file():
+                mime = _mime.get(path.suffix.lower(), "image/png")
+                b64 = base64.b64encode(path.read_bytes()).decode()
+                props[key] = f"data:{mime};base64,{b64}"
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -560,21 +735,37 @@ def main():
                 print(f"    Prepared image: {row['image']} (CID: {cid})")
 
     # ------------------------------------------------------------------
-    # 3. Build HTML content dynamically
-    # ------------------------------------------------------------------
-    html = build_html_email(grouped, args.month, EMAIL_CONFIG, image_cids)
-    print(f"  Built HTML email structure with {len(grouped)} section type(s).")
-
-    # ------------------------------------------------------------------
-    # 4. Build EML message
+    # 3. Subject + config, then render HTML (newsletter_renderer)
     # ------------------------------------------------------------------
     if args.subject:
-        subject = args.subject
+        subject = args.subject.strip()
     else:
         current_year = datetime.now().year
         subject = EMAIL_CONFIG["subject"].format(month=args.month, year=current_year)
 
     from_addr = getattr(args, "from")
+    meta = {
+        "newsletterName": "Newsletter",
+        "subject": subject,
+        "from": from_addr,
+        "to": args.to,
+        "orgName": "Aon",
+        "tagline": "Newsletter",
+    }
+    config = excel_to_newsletter_config(
+        grouped,
+        email_config=EMAIL_CONFIG,
+        ordered_blocks=None,
+        block_bg_colors=None,
+        meta=meta,
+        bullet_heading="What's Going On",
+    )
+    html = render_newsletter(config, image_cids=image_cids)
+    print(f"  Rendered HTML via newsletter_renderer ({len(grouped)} Excel section type(s)).")
+
+    # ------------------------------------------------------------------
+    # 4. Build EML message
+    # ------------------------------------------------------------------
     msg = build_eml_message(html, from_addr, args.to, subject)
 
     # Attach images
